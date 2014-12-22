@@ -51,6 +51,9 @@ class QuerySet(object):
     """
     Represents a lazy database lookup for a set of objects.
     """
+    update_query = sql.UpdateQuery
+    delete_query = sql.DeleteQuery
+    collector = Collector
 
     def __init__(self, model=None, query=None, using=None, hints=None):
         self.model = model
@@ -566,7 +569,7 @@ class QuerySet(object):
         del_query.query.select_related = False
         del_query.query.clear_ordering(force_empty=True)
 
-        collector = Collector(using=del_query.db)
+        collector = self.collector(using=del_query.db)
         collector.collect(del_query)
         collector.delete()
 
@@ -580,7 +583,7 @@ class QuerySet(object):
         Deletes objects found from the given queryset in single direct SQL
         query. No signals are sent, and there is no protection for cascades.
         """
-        sql.DeleteQuery(self.model).delete_qs(self, using)
+        self.delete_query(self.model).delete_qs(self, using)
     _raw_delete.alters_data = True
 
     def update(self, **kwargs):
@@ -591,7 +594,7 @@ class QuerySet(object):
         assert self.query.can_filter(), \
             "Cannot update a query once a slice has been taken."
         self._for_write = True
-        query = self.query.clone(sql.UpdateQuery)
+        query = self.query.clone(self.update_query)
         query.add_update_values(kwargs)
         with transaction.atomic(using=self.db, savepoint=False):
             rows = query.get_compiler(self.db).execute_sql(CURSOR)
@@ -608,7 +611,7 @@ class QuerySet(object):
         """
         assert self.query.can_filter(), \
             "Cannot update a query once a slice has been taken."
-        query = self.query.clone(sql.UpdateQuery)
+        query = self.query.clone(self.update_query)
         query.add_update_fields(values)
         self._result_cache = None
         return query.get_compiler(self.db).execute_sql(CURSOR)

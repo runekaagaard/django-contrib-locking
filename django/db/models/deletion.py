@@ -52,6 +52,8 @@ def DO_NOTHING(collector, field, sub_objs, using):
 
 
 class Collector(object):
+    update_query = sql.UpdateQuery
+
     def __init__(self, using):
         self.using = using
         # Initially, {model: {instances}}, later values become lists.
@@ -270,14 +272,13 @@ class Collector(object):
                     signals.pre_delete.send(
                         sender=model, instance=obj, using=self.using
                     )
-
             # fast deletes
             for qs in self.fast_deletes:
                 qs._raw_delete(using=self.using)
 
             # update fields
             for model, instances_for_fieldvalues in six.iteritems(self.field_updates):
-                query = sql.UpdateQuery(model)
+                query = self.update_query(model)
                 for (field, value), instances in six.iteritems(instances_for_fieldvalues):
                     query.update_batch([obj.pk for obj in instances],
                                        {field.name: value}, self.using)
@@ -288,10 +289,8 @@ class Collector(object):
 
             # delete instances
             for model, instances in six.iteritems(self.data):
-                query = sql.DeleteQuery(model)
-                pk_list = [obj.pk for obj in instances]
-                query.delete_batch(pk_list, self.using)
-
+                query = model._base_manager.get_queryset().delete_query(model)
+                query.delete_batch(instances, self.using)
                 if not model._meta.auto_created:
                     for obj in instances:
                         signals.post_delete.send(

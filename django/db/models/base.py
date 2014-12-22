@@ -847,8 +847,7 @@ class Model(six.with_metaclass(ModelBase)):
             "%s object can't be deleted because its %s attribute is set to None." %
             (self._meta.object_name, self._meta.pk.attname)
         )
-
-        collector = Collector(using=using)
+        collector = self.__class__._base_manager.get_queryset().collector(using=using)
         collector.collect([self])
         collector.delete()
 

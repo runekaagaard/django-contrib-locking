@@ -26,13 +26,14 @@ class DeleteQuery(Query):
         self.where = where
         self.get_compiler(using).execute_sql(NO_RESULTS)
 
-    def delete_batch(self, pk_list, using, field=None):
+    def delete_batch(self, instances, using, field=None):
         """
         Set up and execute delete queries for all the objects in pk_list.
 
         More than one physical query may be executed if there are a
         lot of values in pk_list.
         """
+        pk_list = [obj.pk for obj in instances]
         if not field:
             field = self.get_meta().pk
         for offset in range(0, len(pk_list), GET_ITERATOR_CHUNK_SIZE):
@@ -130,7 +131,7 @@ class UpdateQuery(Query):
                 self.add_related_update(model, field, val)
                 continue
             values_seq.append((field, model, val))
-        return self.add_update_fields(values_seq)
+        self.values.extend(values_seq)
 
     def add_update_fields(self, values_seq):
         """
@@ -158,7 +159,7 @@ class UpdateQuery(Query):
             return []
         result = []
         for model, values in six.iteritems(self.related_updates):
-            query = UpdateQuery(model)
+            query = self.__class__(model)
             query.values = values
             if self.related_ids is not None:
                 query.add_filter(('pk__in', self.related_ids))
