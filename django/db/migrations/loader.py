@@ -5,6 +5,7 @@ import os
 import sys
 
 from django.apps import apps
+from django.db import connection
 from django.db.migrations.recorder import MigrationRecorder
 from django.db.migrations.graph import MigrationGraph, NodeNotFoundError
 from django.utils import six
@@ -315,7 +316,7 @@ class MigrationLoader(object):
             if app_label in seen_apps:
                 conflicting_apps.add(app_label)
             seen_apps.setdefault(app_label, set()).add(migration_name)
-        return dict((app_label, seen_apps[app_label]) for app_label in conflicting_apps)
+        return {app_label: seen_apps[app_label] for app_label in conflicting_apps}
 
     def project_state(self, nodes=None, at_end=True):
         """
@@ -339,3 +340,14 @@ class AmbiguityError(Exception):
     Raised when more than one migration matches a name prefix
     """
     pass
+
+
+def is_latest_migration_applied(app_label):
+    # TODO: Remove when migration plan / state is passed (#24100).
+    loader = MigrationLoader(connection)
+    loader.load_disk()
+    leaf_nodes = loader.graph.leaf_nodes(app=app_label)
+    return (
+        leaf_nodes and leaf_nodes[0] in loader.applied_migrations or
+        app_label in loader.unmigrated_apps
+    )

@@ -3,6 +3,7 @@ from __future__ import unicode_literals
 import collections
 from importlib import import_module
 import os
+import pkgutil
 import sys
 
 import django
@@ -24,11 +25,8 @@ def find_commands(management_dir):
     Returns an empty list if no commands are defined.
     """
     command_dir = os.path.join(management_dir, 'commands')
-    try:
-        return [f[:-3] for f in os.listdir(command_dir)
-                if not f.startswith('_') and f.endswith('.py')]
-    except OSError:
-        return []
+    return [name for _, name, is_pkg in pkgutil.iter_modules([command_dir])
+            if not is_pkg and not name.startswith('_')]
 
 
 def load_command_class(app_name, name):
@@ -85,7 +83,7 @@ def call_command(name, *args, **options):
     Some examples:
         call_command('syncdb')
         call_command('shell', plain=True)
-        call_command('sqlall', 'myapp')
+        call_command('sqlmigrate', 'myapp')
     """
     # Load the command object.
     try:
@@ -103,9 +101,9 @@ def call_command(name, *args, **options):
     parser = command.create_parser('', name)
     if command.use_argparse:
         # Use the `dest` option name from the parser option
-        opt_mapping = dict((sorted(s_opt.option_strings)[0].lstrip('-').replace('-', '_'), s_opt.dest)
-                           for s_opt in parser._actions if s_opt.option_strings)
-        arg_options = dict((opt_mapping.get(key, key), value) for key, value in options.items())
+        opt_mapping = {sorted(s_opt.option_strings)[0].lstrip('-').replace('-', '_'): s_opt.dest
+                       for s_opt in parser._actions if s_opt.option_strings}
+        arg_options = {opt_mapping.get(key, key): value for key, value in options.items()}
         defaults = parser.parse_args(args=args)
         defaults = dict(defaults._get_kwargs(), **arg_options)
         # Move positional args out of options to mimic legacy optparse
@@ -233,29 +231,24 @@ class ManagementUtility(object):
         # special case: the 'help' subcommand has no options
         elif cwords[0] in subcommands and cwords[0] != 'help':
             subcommand_cls = self.fetch_command(cwords[0])
-            # special case: 'runfcgi' stores additional options as
-            # 'key=value' pairs
-            if cwords[0] == 'runfcgi':
-                from django.core.servers.fastcgi import FASTCGI_OPTIONS
-                options += [(k, 1) for k in FASTCGI_OPTIONS]
             # special case: add the names of installed apps to options
-            elif cwords[0] in ('dumpdata', 'sql', 'sqlall', 'sqlclear',
-                    'sqlcustom', 'sqlindexes', 'sqlsequencereset', 'test'):
+            if cwords[0] in ('dumpdata', 'sql', 'sqlall', 'sqlclear',
+                    'sqlcustom', 'sqlindexes', 'sqlmigrate', 'sqlsequencereset', 'test'):
                 try:
                     app_configs = apps.get_app_configs()
                     # Get the last part of the dotted path as the app name.
-                    options += [(app_config.label, 0) for app_config in app_configs]
+                    options.extend((app_config.label, 0) for app_config in app_configs)
                 except ImportError:
                     # Fail silently if DJANGO_SETTINGS_MODULE isn't set. The
                     # user will find out once they execute the command.
                     pass
             parser = subcommand_cls.create_parser('', cwords[0])
             if subcommand_cls.use_argparse:
-                options += [(sorted(s_opt.option_strings)[0], s_opt.nargs != 0) for s_opt in
-                            parser._actions if s_opt.option_strings]
+                options.extend((sorted(s_opt.option_strings)[0], s_opt.nargs != 0) for s_opt in
+                               parser._actions if s_opt.option_strings)
             else:
-                options += [(s_opt.get_opt_string(), s_opt.nargs) for s_opt in
-                            parser.option_list]
+                options.extend((s_opt.get_opt_string(), s_opt.nargs) for s_opt in
+                               parser.option_list)
             # filter out previously specified options from available options
             prev_opts = [x.split('=')[0] for x in cwords[1:cword - 1]]
             options = [opt for opt in options if opt[0] not in prev_opts]

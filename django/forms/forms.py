@@ -251,9 +251,14 @@ class BaseForm(object):
                     # that users write): if there are only top errors, we may
                     # not be able to conscript the last row for our purposes,
                     # so insert a new, empty row.
-                    last_row = (normal_row % {'errors': '', 'label': '',
-                                              'field': '', 'help_text': '',
-                                              'html_class_attr': html_class_attr})
+                    last_row = (normal_row % {
+                        'errors': '',
+                        'label': '',
+                        'field': '',
+                        'help_text': '',
+                        'html_class_attr': html_class_attr,
+                        'field_name': '',
+                    })
                     output.append(last_row)
                 output[-1] = last_row[:-len(row_ender)] + str_hidden + row_ender
             else:
@@ -645,7 +650,7 @@ class BoundField(object):
         # Translators: If found as last label character, these punctuation
         # characters will prevent the default label_suffix to be appended to the label
         if label_suffix and contents and contents[-1] not in _(':?.!'):
-            contents = format_html('{0}{1}', contents, label_suffix)
+            contents = format_html('{}{}', contents, label_suffix)
         widget = self.field.widget
         id_ = widget.attrs.get('id') or self.auto_id
         if id_:
@@ -659,7 +664,7 @@ class BoundField(object):
                 else:
                     attrs['class'] = self.form.required_css_class
             attrs = flatatt(attrs) if attrs else ''
-            contents = format_html('<label{0}>{1}</label>', attrs, contents)
+            contents = format_html('<label{}>{}</label>', attrs, contents)
         else:
             contents = conditional_escape(contents)
         return mark_safe(contents)

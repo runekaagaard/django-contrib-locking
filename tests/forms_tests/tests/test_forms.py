@@ -4,7 +4,6 @@ from __future__ import unicode_literals
 import copy
 import datetime
 import json
-import warnings
 
 from django.core.exceptions import NON_FIELD_ERRORS
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -21,7 +20,7 @@ from django.http import QueryDict
 from django.template import Template, Context
 from django.test import TestCase
 from django.test.utils import str_prefix
-from django.utils.datastructures import MultiValueDict, MergeDict
+from django.utils.datastructures import MultiValueDict
 from django.utils.encoding import force_text
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe, SafeData
@@ -553,9 +552,8 @@ class FormsTestCase(TestCase):
 </ul>""")
 
     def test_multiple_choice_list_data(self):
-        # Data for a MultipleChoiceField should be a list. QueryDict, MultiValueDict and
-        # MergeDict (when created as a merge of MultiValueDicts) conveniently work with
-        # this.
+        # Data for a MultipleChoiceField should be a list. QueryDict and
+        # MultiValueDict conveniently work with this.
         class SongForm(Form):
             name = CharField()
             composers = MultipleChoiceField(choices=[('J', 'John Lennon'), ('P', 'Paul McCartney')], widget=CheckboxSelectMultiple)
@@ -571,13 +569,6 @@ class FormsTestCase(TestCase):
         data = MultiValueDict(dict(name=['Yesterday'], composers=['J', 'P']))
         f = SongForm(data)
         self.assertEqual(f.errors, {})
-
-        # MergeDict is deprecated, but is supported until removed.
-        with warnings.catch_warnings(record=True):
-            warnings.simplefilter("always")
-            data = MergeDict(MultiValueDict(dict(name=['Yesterday'], composers=['J', 'P'])))
-            f = SongForm(data)
-            self.assertEqual(f.errors, {})
 
     def test_multiple_hidden(self):
         class SongForm(Form):
@@ -1384,7 +1375,7 @@ class FormsTestCase(TestCase):
         """
         class CustomWidget(TextInput):
             def render(self, name, value, attrs=None):
-                return format_html(str('<input{0} />'), ' id=custom')
+                return format_html(str('<input{} />'), ' id=custom')
 
         class SampleForm(Form):
             name = CharField(widget=CustomWidget)
@@ -2006,6 +1997,22 @@ class FormsTestCase(TestCase):
         self.assertIsNot(field2.fields, field.fields)
         self.assertIsNot(field2.fields[0].choices, field.fields[0].choices)
 
+    def test_multivalue_initial_data(self):
+        """
+        #23674 -- invalid initial data should not break form.changed_data()
+        """
+        class DateAgeField(MultiValueField):
+            def __init__(self, fields=(), *args, **kwargs):
+                fields = (DateField(label="Date"), IntegerField(label="Age"))
+                super(DateAgeField, self).__init__(fields=fields, *args, **kwargs)
+
+        class DateAgeForm(Form):
+            date_age = DateAgeField()
+
+        data = {"date_age": ["1998-12-06", 16]}
+        form = DateAgeForm(data, initial={"date_age": ["200-10-10", 14]})
+        self.assertTrue(form.has_changed())
+
     def test_multivalue_optional_subfields(self):
         class PhoneField(MultiValueField):
             def __init__(self, *args, **kwargs):
@@ -2175,6 +2182,60 @@ class FormsTestCase(TestCase):
 
         form = SomeForm()
         self.assertHTMLEqual(form.as_p(), '<p id="p_some_field"></p>')
+
+    def test_field_name_with_hidden_input(self):
+        """
+        BaseForm._html_output() should merge all the hidden input fields and
+        put them in the last row.
+        """
+        class SomeForm(Form):
+            hidden1 = CharField(widget=HiddenInput)
+            custom = CharField()
+            hidden2 = CharField(widget=HiddenInput)
+
+            def as_p(self):
+                return self._html_output(
+                    normal_row='<p%(html_class_attr)s>%(field)s %(field_name)s</p>',
+                    error_row='%s',
+                    row_ender='</p>',
+                    help_text_html=' %s',
+                    errors_on_separate_row=True,
+                )
+
+        form = SomeForm()
+        self.assertHTMLEqual(
+            form.as_p(),
+            '<p><input id="id_custom" name="custom" type="text" /> custom'
+            '<input id="id_hidden1" name="hidden1" type="hidden" />'
+            '<input id="id_hidden2" name="hidden2" type="hidden" /></p>'
+        )
+
+    def test_field_name_with_hidden_input_and_non_matching_row_ender(self):
+        """
+        BaseForm._html_output() should merge all the hidden input fields and
+        put them in the last row ended with the specific row ender.
+        """
+        class SomeForm(Form):
+            hidden1 = CharField(widget=HiddenInput)
+            custom = CharField()
+            hidden2 = CharField(widget=HiddenInput)
+
+            def as_p(self):
+                return self._html_output(
+                    normal_row='<p%(html_class_attr)s>%(field)s %(field_name)s</p>',
+                    error_row='%s',
+                    row_ender='<hr/><hr/>',
+                    help_text_html=' %s',
+                    errors_on_separate_row=True
+                )
+
+        form = SomeForm()
+        self.assertHTMLEqual(
+            form.as_p(),
+            '<p><input id="id_custom" name="custom" type="text" /> custom</p>\n'
+            '<input id="id_hidden1" name="hidden1" type="hidden" />'
+            '<input id="id_hidden2" name="hidden2" type="hidden" /><hr/><hr/>'
+        )
 
     def test_error_dict(self):
         class MyForm(Form):

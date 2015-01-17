@@ -3,7 +3,6 @@ from __future__ import unicode_literals
 import datetime
 from decimal import Decimal
 import re
-import warnings
 
 from django.core.exceptions import FieldError
 from django.db import connection
@@ -11,13 +10,10 @@ from django.db.models import (
     Avg, Sum, Count, Max, Min,
     Aggregate, F, Value, Func,
     IntegerField, FloatField, DecimalField)
-with warnings.catch_warnings(record=True) as w:
-    warnings.simplefilter("always")
-    from django.db.models.sql import aggregates as sql_aggregates
-from django.test import TestCase
+from django.test import TestCase, ignore_warnings
 from django.test.utils import Approximate
 from django.test.utils import CaptureQueriesContext
-from django.utils import six
+from django.utils import six, timezone
 from django.utils.deprecation import RemovedInDjango20Warning
 
 from .models import Author, Publisher, Book, Store
@@ -683,11 +679,24 @@ class BaseAggregateTestCase(TestCase):
                 # the only "ORDER BY" clause present in the query.
                 self.assertEqual(
                     re.findall(r'order by (\w+)', qstr),
-                    [', '.join(forced_ordering).lower()]
+                    [', '.join(f[1][0] for f in forced_ordering).lower()]
                 )
             else:
                 self.assertNotIn('order by', qstr)
             self.assertEqual(qstr.count(' join '), 0)
+
+    def test_decimal_max_digits_has_no_effect(self):
+        Book.objects.all().delete()
+        a1 = Author.objects.first()
+        p1 = Publisher.objects.first()
+        thedate = timezone.now()
+        for i in range(10):
+            Book.objects.create(
+                isbn="abcde{}".format(i), name="none", pages=10, rating=4.0,
+                price=9999.98, contact=a1, publisher=p1, pubdate=thedate)
+
+        book = Book.objects.aggregate(price_sum=Sum('price'))
+        self.assertEqual(book['price_sum'], Decimal("99999.80"))
 
 
 class ComplexAggregateTestCase(TestCase):
@@ -755,8 +764,8 @@ class ComplexAggregateTestCase(TestCase):
         self.assertEqual(b2.sums, 383.69)
 
         b3 = Book.objects.annotate(sums=Sum(F('rating') + F('pages') + F('price'),
-                                   output_field=DecimalField(max_digits=6, decimal_places=2))).get(pk=4)
-        self.assertEqual(b3.sums, Decimal("383.69"))
+                                   output_field=DecimalField())).get(pk=4)
+        self.assertEqual(b3.sums, Approximate(Decimal("383.69"), places=2))
 
     def test_complex_aggregations_require_kwarg(self):
         with six.assertRaisesRegex(self, TypeError, 'Complex expressions require an alias'):
@@ -937,7 +946,9 @@ class ComplexAggregateTestCase(TestCase):
         self.assertQuerysetEqual(
             qs2, [1, 2], lambda v: v.pk)
 
+    @ignore_warnings(category=RemovedInDjango20Warning)
     def test_backwards_compatibility(self):
+        from django.db.models.sql import aggregates as sql_aggregates
 
         class SqlNewSum(sql_aggregates.Aggregate):
             sql_function = 'SUM'
@@ -951,8 +962,6 @@ class ComplexAggregateTestCase(TestCase):
                     col, source=source, is_summary=is_summary, **self.extra)
                 query.annotations[alias] = aggregate
 
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", RemovedInDjango20Warning)
-            qs = Author.objects.values('name').annotate(another_age=NewSum('age') + F('age'))
-            a = qs.get(pk=1)
-            self.assertEqual(a['another_age'], 68)
+        qs = Author.objects.values('name').annotate(another_age=NewSum('age') + F('age'))
+        a = qs.get(pk=1)
+        self.assertEqual(a['another_age'], 68)

@@ -108,21 +108,6 @@ All attributes should be considered read-only, unless stated otherwise below.
 
     Note: ``POST`` does *not* include file-upload information. See ``FILES``.
 
-.. attribute:: HttpRequest.REQUEST
-
-    .. deprecated:: 1.7
-        Use the more explicit ``GET`` and ``POST`` instead.
-
-    For convenience, a dictionary-like object that searches ``POST`` first,
-    then ``GET``. Inspired by PHP's ``$_REQUEST``.
-
-    For example, if ``GET = {"name": "john"}`` and ``POST = {"age": '34'}``,
-    ``REQUEST["name"]`` would be ``"john"``, and ``REQUEST["age"]`` would be
-    ``"34"``.
-
-    It's strongly suggested that you use ``GET`` and ``POST`` instead of
-    ``REQUEST``, because the former are more explicit.
-
 .. attribute:: HttpRequest.COOKIES
 
     A standard Python dictionary containing all cookies. Keys and values are
@@ -367,7 +352,7 @@ a subclass of dictionary. Exceptions are outlined here:
     Instantiates a ``QueryDict`` object based on ``query_string``.
 
     >>> QueryDict('a=1&a=2&c=3')
-    <QueryDict: {u'a': [u'1', u'2'], u'b': [u'1']}>
+    <QueryDict: {'a': ['1', '2'], 'c': ['3']}>
 
     If ``query_string`` is not passed in, the resulting ``QueryDict`` will be
     empty (it will have no keys or values).
@@ -708,6 +693,12 @@ Methods
     Returns ``True`` or ``False`` based on a case-insensitive check for a
     header with the given name.
 
+.. method:: HttpResponse.setdefault(header, value)
+
+    .. versionadded:: 1.8
+
+    Sets a header unless it has already been set.
+
 .. method:: HttpResponse.set_cookie(key, value='', max_age=None, expires=None, path='/', domain=None, secure=None, httponly=False)
 
     Sets a cookie. The parameters are the same as in the
@@ -992,3 +983,21 @@ Attributes
 .. attribute:: StreamingHttpResponse.streaming
 
     This is always ``True``.
+
+FileResponse objects
+====================
+
+.. versionadded:: 1.8
+
+.. class:: FileResponse
+
+:class:`FileResponse` is a subclass of :class:`StreamingHttpResponse` optimized
+for binary files. It uses `wsgi.file_wrapper`_ if provided by the wsgi server,
+otherwise it streams the file out in small chunks.
+
+.. _wsgi.file_wrapper: https://www.python.org/dev/peps/pep-3333/#optional-platform-specific-file-handling
+
+``FileResponse`` expects a file open in binary mode like so::
+
+    >>> from django.http import FileResponse
+    >>> response = FileResponse(open('myfile.png', 'rb'))

@@ -56,7 +56,7 @@ class CsrfTokenNode(Node):
             if csrf_token == 'NOTPROVIDED':
                 return format_html("")
             else:
-                return format_html("<input type='hidden' name='csrfmiddlewaretoken' value='{0}' />", csrf_token)
+                return format_html("<input type='hidden' name='csrfmiddlewaretoken' value='{}' />", csrf_token)
         else:
             # It's very probable that the token is missing because of
             # misconfiguration, so we raise a warning
@@ -195,7 +195,7 @@ class ForNode(Node):
                     # Check loop variable count before unpacking
                     if num_loopvars != len_item:
                         warnings.warn(
-                            "Need {0} values to unpack in for loop; got {1}. "
+                            "Need {} values to unpack in for loop; got {}. "
                             "This will raise an exception in Django 2.0."
                             .format(num_loopvars, len_item),
                             RemovedInDjango20Warning)
@@ -403,7 +403,7 @@ class SsiNode(Node):
             output = ''
         if self.parsed:
             try:
-                t = Template(output, name=filepath)
+                t = Template(output, name=filepath, engine=context.engine)
                 return t.render(context)
             except TemplateSyntaxError as e:
                 if settings.DEBUG:
@@ -476,13 +476,20 @@ class URLNode(Node):
 
         view_name = self.view_name.resolve(context)
 
+        try:
+            current_app = context.request.current_app
+        except AttributeError:
+            # Change the fallback value to None when the deprecation path for
+            # Context.current_app completes in Django 2.0.
+            current_app = context.current_app
+
         # Try to look up the URL twice: once given the view name, and again
         # relative to what we guess is the "main" app. If they both fail,
         # re-raise the NoReverseMatch unless we're using the
         # {% url ... as var %} construct in which case return nothing.
         url = ''
         try:
-            url = reverse(view_name, args=args, kwargs=kwargs, current_app=context.current_app)
+            url = reverse(view_name, args=args, kwargs=kwargs, current_app=current_app)
         except NoReverseMatch:
             exc_info = sys.exc_info()
             if settings.SETTINGS_MODULE:
@@ -490,7 +497,7 @@ class URLNode(Node):
                 try:
                     url = reverse(project_name + '.' + view_name,
                               args=args, kwargs=kwargs,
-                              current_app=context.current_app)
+                              current_app=current_app)
                 except NoReverseMatch:
                     if self.asvar is None:
                         # Re-raise the original exception, not the one with
@@ -562,8 +569,8 @@ class WithNode(Node):
         return "<WithNode>"
 
     def render(self, context):
-        values = dict((key, val.resolve(context)) for key, val in
-                      six.iteritems(self.extra_context))
+        values = {key: val.resolve(context) for key, val in
+                  six.iteritems(self.extra_context)}
         with context.push(**values):
             return self.nodelist.render(context)
 
@@ -992,7 +999,7 @@ def do_if(parser, token):
     ``{% if 1>2 %}`` is not a valid if tag.
 
     All supported operators are: ``or``, ``and``, ``in``, ``not in``
-    ``==`` (or ``=``), ``!=``, ``>``, ``>=``, ``<`` and ``<=``.
+    ``==``, ``!=``, ``>``, ``>=``, ``<`` and ``<=``.
 
     Operator precedence follows Python.
     """
@@ -1081,6 +1088,11 @@ def ssi(parser, token):
 
         {% ssi "/home/html/ljworld.com/includes/right_generic.html" parsed %}
     """
+    warnings.warn(
+        "The {% ssi %} tag is deprecated. Use the {% include %} tag instead.",
+        RemovedInDjango20Warning,
+    )
+
     bits = token.split_contents()
     parsed = False
     if len(bits) not in (2, 3):

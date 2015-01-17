@@ -11,6 +11,7 @@ from django.contrib.auth import get_permission_codename
 from django.core import exceptions
 from django.core.management.base import CommandError
 from django.db import DEFAULT_DB_ALIAS, router
+from django.db.migrations.loader import is_latest_migration_applied
 from django.utils.encoding import DEFAULT_LOCALE_ENCODING
 from django.utils import six
 
@@ -58,6 +59,10 @@ def _check_permission_clashing(custom, builtin, ctype):
 
 
 def create_permissions(app_config, verbosity=2, interactive=True, using=DEFAULT_DB_ALIAS, **kwargs):
+    # TODO: Remove when migration plan / state is passed (#24100).
+    if not is_latest_migration_applied('auth'):
+        return
+
     if not app_config.models_module:
         return
 
@@ -105,8 +110,9 @@ def create_permissions(app_config, verbosity=2, interactive=True, using=DEFAULT_
     for perm in perms:
         if len(perm.name) > permission_name_max_length:
             raise exceptions.ValidationError(
-                "The verbose_name of %s is longer than %s characters" % (
-                    perm.content_type,
+                "The verbose_name of %s.%s is longer than %s characters" % (
+                    perm.content_type.app_label,
+                    perm.content_type.model,
                     verbose_name_max_length,
                 )
             )

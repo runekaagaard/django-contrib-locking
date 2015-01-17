@@ -10,6 +10,7 @@ from django.conf import settings
 from django.core.management.base import CommandError
 from django.db import models, router
 from django.utils.deprecation import RemovedInDjango19Warning
+from django.utils.version import get_docs_version
 
 
 def check_for_migrations(app_config, connection):
@@ -31,9 +32,11 @@ def sql_create(app_config, style, connection):
     if connection.settings_dict['ENGINE'] == 'django.db.backends.dummy':
         # This must be the "dummy" database backend, which means the user
         # hasn't set ENGINE for the database.
-        raise CommandError("Django doesn't know which syntax to use for your SQL statements,\n" +
-            "because you haven't properly specified the ENGINE setting for the database.\n" +
-            "see: https://docs.djangoproject.com/en/dev/ref/settings/#databases")
+        raise CommandError(
+            "Django doesn't know which syntax to use for your SQL statements,\n"
+            "because you haven't properly specified the ENGINE setting for the database.\n"
+            "see: https://docs.djangoproject.com/en/%s/ref/settings/#databases" % get_docs_version()
+        )
 
     # Get installed models, so we generate REFERENCES right.
     # We trim models from the current app so that the sqlreset command does not
@@ -62,8 +65,8 @@ def sql_create(app_config, style, connection):
     if not_installed_models:
         alter_sql = []
         for model in not_installed_models:
-            alter_sql.extend(['-- ' + sql for sql in
-                connection.creation.sql_for_pending_references(model, style, pending_references)])
+            alter_sql.extend('-- ' + sql for sql in
+                connection.creation.sql_for_pending_references(model, style, pending_references))
         if alter_sql:
             final_output.append('-- The following references should be added but depend on non-existent tables:')
             final_output.extend(alter_sql)
@@ -239,7 +242,7 @@ def custom_sql_for_model(model, style, connection):
     return output
 
 
-def emit_pre_migrate_signal(create_models, verbosity, interactive, db):
+def emit_pre_migrate_signal(verbosity, interactive, db):
     # Emit the pre_migrate signal for every application.
     for app_config in apps.get_app_configs():
         if app_config.models_module is None:
@@ -252,17 +255,9 @@ def emit_pre_migrate_signal(create_models, verbosity, interactive, db):
             verbosity=verbosity,
             interactive=interactive,
             using=db)
-        # For backwards-compatibility -- remove in Django 1.9.
-        models.signals.pre_syncdb.send(
-            sender=app_config.models_module,
-            app=app_config.models_module,
-            create_models=create_models,
-            verbosity=verbosity,
-            interactive=interactive,
-            db=db)
 
 
-def emit_post_migrate_signal(created_models, verbosity, interactive, db):
+def emit_post_migrate_signal(verbosity, interactive, db):
     # Emit the post_migrate signal for every application.
     for app_config in apps.get_app_configs():
         if app_config.models_module is None:
@@ -275,11 +270,3 @@ def emit_post_migrate_signal(created_models, verbosity, interactive, db):
             verbosity=verbosity,
             interactive=interactive,
             using=db)
-        # For backwards-compatibility -- remove in Django 1.9.
-        models.signals.post_syncdb.send(
-            sender=app_config.models_module,
-            app=app_config.models_module,
-            created_models=created_models,
-            verbosity=verbosity,
-            interactive=interactive,
-            db=db)

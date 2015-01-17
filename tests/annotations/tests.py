@@ -2,16 +2,34 @@ from __future__ import unicode_literals
 import datetime
 from decimal import Decimal
 
-from django.core.exceptions import FieldError
+from django.core.exceptions import FieldDoesNotExist, FieldError
 from django.db.models import (
     Sum, Count,
     F, Value, Func,
     IntegerField, BooleanField, CharField)
-from django.db.models.fields import FieldDoesNotExist
 from django.test import TestCase
 from django.utils import six
 
 from .models import Author, Book, Store, DepartmentStore, Company, Employee
+
+
+def cxOracle_513_py3_bug(func):
+    """
+    cx_Oracle versions up to and including 5.1.3 have a bug with respect to
+    string handling under Python3 (essentially, they treat Python3 strings
+    as Python2 strings rather than unicode). This makes some tests here
+    fail under Python 3 -- so we mark them as expected failures.
+
+    See  https://code.djangoproject.com/ticket/23843, in particular comment 6,
+    which points to https://bitbucket.org/anthony_tuininga/cx_oracle/issue/6/
+    """
+    from unittest import expectedFailure
+    from django.db import connection
+
+    if connection.vendor == 'oracle' and six.PY3 and connection.Database.version <= '5.1.3':
+        return expectedFailure(func)
+    else:
+        return func
 
 
 class NonAggregateAnnotationTestCase(TestCase):
@@ -162,7 +180,7 @@ class NonAggregateAnnotationTestCase(TestCase):
             other_chain=F('chain'),
             is_open=Value(True, BooleanField()),
             book_isbn=F('books__isbn')
-        ).select_related('store').order_by('book_isbn').filter(chain='Westfield')
+        ).order_by('book_isbn').filter(chain='Westfield')
 
         self.assertQuerysetEqual(
             qs, [
@@ -171,6 +189,13 @@ class NonAggregateAnnotationTestCase(TestCase):
             ],
             lambda d: (d.other_name, d.other_chain, d.is_open, d.book_isbn)
         )
+
+    def test_null_annotation(self):
+        """
+        Test that annotating None onto a model round-trips
+        """
+        book = Book.objects.annotate(no_value=Value(None, output_field=IntegerField())).first()
+        self.assertIsNone(book.no_value)
 
     def test_column_field_ordering(self):
         """
@@ -230,6 +255,7 @@ class NonAggregateAnnotationTestCase(TestCase):
                 e.id, e.first_name, e.manager, e.random_value, e.last_name, e.age,
                 e.salary, e.store.name, e.annotated_value))
 
+    @cxOracle_513_py3_bug
     def test_custom_functions(self):
         Company(name='Apple', motto=None, ticker_name='APPL', description='Beautiful Devices').save()
         Company(name='Django Software Foundation', motto=None, ticker_name=None, description=None).save()
@@ -255,6 +281,7 @@ class NonAggregateAnnotationTestCase(TestCase):
             lambda c: (c.name, c.tagline)
         )
 
+    @cxOracle_513_py3_bug
     def test_custom_functions_can_ref_other_functions(self):
         Company(name='Apple', motto=None, ticker_name='APPL', description='Beautiful Devices').save()
         Company(name='Django Software Foundation', motto=None, ticker_name=None, description=None).save()

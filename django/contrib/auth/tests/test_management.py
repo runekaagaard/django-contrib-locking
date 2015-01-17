@@ -17,7 +17,7 @@ from django.core import checks
 from django.core import exceptions
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.test import TestCase, override_settings, override_system_checks
+from django.test import TestCase, override_settings, override_system_checks, skipUnlessDBFeature
 from django.utils import six
 from django.utils.encoding import force_str
 
@@ -334,6 +334,7 @@ class CreatesuperuserManagementCommandTestCase(TestCase):
         command.execute(
             stdin=sentinel,
             stdout=six.StringIO(),
+            stderr=six.StringIO(),
             interactive=False,
             verbosity=0,
             username='janet',
@@ -344,6 +345,7 @@ class CreatesuperuserManagementCommandTestCase(TestCase):
         command = createsuperuser.Command()
         command.execute(
             stdout=six.StringIO(),
+            stderr=six.StringIO(),
             interactive=False,
             verbosity=0,
             username='joe',
@@ -566,5 +568,23 @@ class PermissionTestCase(TestCase):
         models.Permission._meta.verbose_name = "some ridiculously long verbose name that is out of control" * 5
 
         six.assertRaisesRegex(self, exceptions.ValidationError,
-            "The verbose_name of permission is longer than 244 characters",
+            "The verbose_name of auth.permission is longer than 244 characters",
             create_permissions, auth_app_config, verbosity=0)
+
+
+class MigrateTests(TestCase):
+
+    @skipUnlessDBFeature('can_rollback_ddl')
+    def test_unmigrating_first_migration_post_migrate_signal(self):
+        """
+        #24075 - When unmigrating an app before its first migration,
+        post_migrate signal handler must be aware of the missing tables.
+        """
+        try:
+            with override_settings(
+                INSTALLED_APPS=["django.contrib.auth", "django.contrib.contenttypes"],
+                MIGRATION_MODULES={'auth': 'django.contrib.auth.migrations'},
+            ):
+                call_command("migrate", "auth", "zero", verbosity=0)
+        finally:
+            call_command("migrate", verbosity=0)

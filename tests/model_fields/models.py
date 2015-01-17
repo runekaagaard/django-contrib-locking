@@ -1,7 +1,6 @@
 import os
 import tempfile
 import uuid
-import warnings
 
 try:
     from PIL import Image
@@ -9,6 +8,11 @@ except ImportError:
     Image = None
 
 from django.core.files.storage import FileSystemStorage
+from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
+from django.contrib.contenttypes.models import ContentType
+from django.db.models.fields.related import (
+    ForeignObject, ForeignKey, ManyToManyField, OneToOneField,
+)
 from django.db import models
 from django.db.models.fields.files import ImageFieldFile, ImageField
 from django.utils import six
@@ -25,7 +29,7 @@ def get_foo():
 
 class Bar(models.Model):
     b = models.CharField(max_length=10)
-    a = models.ForeignKey(Foo, default=get_foo)
+    a = models.ForeignKey(Foo, default=get_foo, related_name=b'bars')
 
 
 class Whiz(models.Model):
@@ -121,6 +125,14 @@ class DateTimeModel(models.Model):
     t = models.TimeField()
 
 
+class DurationModel(models.Model):
+    field = models.DurationField()
+
+
+class NullDurationModel(models.Model):
+    field = models.DurationField(null=True)
+
+
 class PrimaryKeyCharModel(models.Model):
     string = models.CharField(max_length=10, primary_key=True)
 
@@ -156,9 +168,7 @@ class VerboseNameField(models.Model):
     # Don't want to depend on Pillow in this test
     #field_image = models.ImageField("verbose field")
     field12 = models.IntegerField("verbose field12")
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-        field13 = models.IPAddressField("verbose field13")
+    field13 = models.IPAddressField("verbose field13")
     field14 = models.GenericIPAddressField("verbose field14", protocol="ipv4")
     field15 = models.NullBooleanField("verbose field15")
     field16 = models.PositiveIntegerField("verbose field16")
@@ -168,6 +178,10 @@ class VerboseNameField(models.Model):
     field20 = models.TextField("verbose field20")
     field21 = models.TimeField("verbose field21")
     field22 = models.URLField("verbose field22")
+
+
+class GenericIPAddress(models.Model):
+    ip = models.GenericIPAddressField(null=True, protocol='ipv4')
 
 
 ###############################################################################
@@ -293,6 +307,52 @@ if Image:
                                   storage=temp_storage, upload_to='tests',
                                   height_field='headshot_height',
                                   width_field='headshot_width')
+
+
+class AllFieldsModel(models.Model):
+    big_integer = models.BigIntegerField()
+    binary = models.BinaryField()
+    boolean = models.BooleanField(default=False)
+    char = models.CharField(max_length=10)
+    csv = models.CommaSeparatedIntegerField(max_length=10)
+    date = models.DateField()
+    datetime = models.DateTimeField()
+    decimal = models.DecimalField(decimal_places=2, max_digits=2)
+    duration = models.DurationField()
+    email = models.EmailField()
+    file_path = models.FilePathField()
+    floatf = models.FloatField()
+    integer = models.IntegerField()
+    ip_address = models.IPAddressField()
+    generic_ip = models.GenericIPAddressField()
+    null_boolean = models.NullBooleanField()
+    positive_integer = models.PositiveIntegerField()
+    positive_small_integer = models.PositiveSmallIntegerField()
+    slug = models.SlugField()
+    small_integer = models.SmallIntegerField()
+    text = models.TextField()
+    time = models.TimeField()
+    url = models.URLField()
+    uuid = models.UUIDField()
+
+    fo = ForeignObject(
+        'self',
+        from_fields=['abstract_non_concrete_id'],
+        to_fields=['id'],
+        related_name='reverse'
+    )
+    fk = ForeignKey(
+        'self',
+        related_name='reverse2'
+    )
+    m2m = ManyToManyField('self')
+    oto = OneToOneField('self')
+
+    object_id = models.PositiveIntegerField()
+    content_type = models.ForeignKey(ContentType)
+    gfk = GenericForeignKey()
+    gr = GenericRelation(DataModel)
+
 
 ###############################################################################
 
