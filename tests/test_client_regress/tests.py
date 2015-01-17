@@ -8,11 +8,12 @@ import os
 import itertools
 
 from django.core.urlresolvers import reverse, NoReverseMatch
-from django.template import TemplateSyntaxError, Context, Template
-from django.test import Client, TestCase, override_settings
+from django.template import TemplateSyntaxError, Context, engines
+from django.test import Client, TestCase, ignore_warnings, override_settings
 from django.test.client import RedirectCycleError, RequestFactory, encode_file
 from django.test.utils import ContextList, str_prefix
 from django.template.response import SimpleTemplateResponse
+from django.utils.deprecation import RemovedInDjango19Warning, RemovedInDjango20Warning
 from django.utils._os import upath
 from django.utils.translation import ugettext_lazy
 from django.http import HttpResponse
@@ -23,10 +24,7 @@ from .models import CustomUser
 from .views import CustomTestException
 
 
-@override_settings(
-    TEMPLATE_DIRS=(os.path.join(os.path.dirname(upath(__file__)), 'templates'),),
-    ROOT_URLCONF='test_client_regress.urls',
-)
+@override_settings(ROOT_URLCONF='test_client_regress.urls')
 class AssertContainsTests(TestCase):
 
     def test_contains(self):
@@ -160,7 +158,8 @@ class AssertContainsTests(TestCase):
             without throwing an error.
             Refs #15826.
         """
-        response = SimpleTemplateResponse(Template('Hello'), status=200)
+        template = engines['django'].from_string('Hello')
+        response = SimpleTemplateResponse(template)
         self.assertContains(response, 'Hello')
 
     def test_assert_contains_using_non_template_response(self):
@@ -176,7 +175,8 @@ class AssertContainsTests(TestCase):
             without throwing an error.
             Refs #15826.
         """
-        response = SimpleTemplateResponse(Template('Hello'), status=200)
+        template = engines['django'].from_string('Hello')
+        response = SimpleTemplateResponse(template)
         self.assertNotContains(response, 'Bye')
 
     def test_assert_not_contains_using_non_template_response(self):
@@ -909,9 +909,10 @@ class ExceptionTests(TestCase):
 @override_settings(ROOT_URLCONF='test_client_regress.urls')
 class TemplateExceptionTests(TestCase):
 
-    @override_settings(
-        TEMPLATE_DIRS=(os.path.join(os.path.dirname(upath(__file__)), 'bad_templates'),)
-    )
+    @override_settings(TEMPLATES=[{
+        'BACKEND': 'django.template.backends.django.DjangoTemplates',
+        'DIRS': [os.path.join(os.path.dirname(upath(__file__)), 'bad_templates')],
+    }])
     def test_bad_404_template(self):
         "Errors found when rendering 404 error templates are re-raised"
         try:
@@ -958,7 +959,6 @@ class ContextTests(TestCase):
         self.assertEqual(response.context.__class__, Context)
         self.assertIn('get-foo', response.context)
         self.assertEqual(response.context['get-foo'], 'whiz')
-        self.assertEqual(response.context['request-foo'], 'whiz')
         self.assertEqual(response.context['data'], 'sausage')
 
         try:
@@ -974,7 +974,6 @@ class ContextTests(TestCase):
         self.assertEqual(len(response.context), 2)
         self.assertIn('get-foo', response.context)
         self.assertEqual(response.context['get-foo'], 'whiz')
-        self.assertEqual(response.context['request-foo'], 'whiz')
         self.assertEqual(response.context['data'], 'bacon')
 
         try:
@@ -998,13 +997,20 @@ class ContextTests(TestCase):
                           'python', 'dolly'},
                          l.keys())
 
+    @ignore_warnings(category=RemovedInDjango20Warning)
     def test_15368(self):
         # Need to insert a context processor that assumes certain things about
         # the request instance. This triggers a bug caused by some ways of
         # copying RequestContext.
-        with self.settings(TEMPLATE_CONTEXT_PROCESSORS=(
-            'test_client_regress.context_processors.special',
-        )):
+        with self.settings(TEMPLATES=[{
+            'BACKEND': 'django.template.backends.django.DjangoTemplates',
+            'APP_DIRS': True,
+            'OPTIONS': {
+                'context_processors': [
+                    'test_client_regress.context_processors.special',
+                ],
+            },
+        }]):
             response = self.client.get("/request_context_view/")
             self.assertContains(response, 'Path: /request_context_view/')
 
@@ -1249,23 +1255,18 @@ class QueryStringTests(TestCase):
             method = getattr(self.client, method_name)
             response = method("/request_data/", data={'foo': 'whiz'})
             self.assertEqual(response.context['get-foo'], 'whiz')
-            self.assertEqual(response.context['request-foo'], 'whiz')
 
             # A GET-like request can pass a query string as part of the URL
             response = method("/request_data/?foo=whiz")
             self.assertEqual(response.context['get-foo'], 'whiz')
-            self.assertEqual(response.context['request-foo'], 'whiz')
 
             # Data provided in the URL to a GET-like request is overridden by actual form data
             response = method("/request_data/?foo=whiz", data={'foo': 'bang'})
             self.assertEqual(response.context['get-foo'], 'bang')
-            self.assertEqual(response.context['request-foo'], 'bang')
 
             response = method("/request_data/?foo=whiz", data={'bar': 'bang'})
             self.assertEqual(response.context['get-foo'], None)
             self.assertEqual(response.context['get-bar'], 'bang')
-            self.assertEqual(response.context['request-foo'], None)
-            self.assertEqual(response.context['request-bar'], 'bang')
 
     def test_post_like_requests(self):
         # A POST-like request can pass a query string as data
@@ -1277,21 +1278,17 @@ class QueryStringTests(TestCase):
         response = self.client.post("/request_data/?foo=whiz")
         self.assertEqual(response.context['get-foo'], 'whiz')
         self.assertEqual(response.context['post-foo'], None)
-        self.assertEqual(response.context['request-foo'], 'whiz')
 
         # POST data provided in the URL augments actual form data
         response = self.client.post("/request_data/?foo=whiz", data={'foo': 'bang'})
         self.assertEqual(response.context['get-foo'], 'whiz')
         self.assertEqual(response.context['post-foo'], 'bang')
-        self.assertEqual(response.context['request-foo'], 'bang')
 
         response = self.client.post("/request_data/?foo=whiz", data={'bar': 'bang'})
         self.assertEqual(response.context['get-foo'], 'whiz')
         self.assertEqual(response.context['get-bar'], None)
         self.assertEqual(response.context['post-foo'], None)
         self.assertEqual(response.context['post-bar'], 'bang')
-        self.assertEqual(response.context['request-foo'], 'whiz')
-        self.assertEqual(response.context['request-bar'], 'bang')
 
 
 @override_settings(ROOT_URLCONF='test_client_regress.urls')

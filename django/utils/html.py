@@ -3,7 +3,6 @@
 from __future__ import unicode_literals
 
 import re
-import sys
 import warnings
 
 from django.utils.deprecation import RemovedInDjango20Warning
@@ -44,6 +43,10 @@ def escape(text):
     """
     Returns the given text with ampersands, quotes and angle brackets encoded
     for use in HTML.
+
+    This function always escapes its input, even if it's already escaped and
+    marked as such. This may result in double-escaping. If this is a concern,
+    use conditional_escape() instead.
     """
     return mark_safe(force_text(text).replace('&', '&amp;').replace('<', '&lt;')
         .replace('>', '&gt;').replace('"', '&quot;').replace("'", '&#39;'))
@@ -76,6 +79,9 @@ escapejs = allow_lazy(escapejs, six.text_type, SafeText)
 def conditional_escape(text):
     """
     Similar to escape(), except that it doesn't operate on pre-escaped strings.
+
+    This function relies on the __html__ convention used both by Django's
+    SafeData class and by third-party libraries like markupsafe.
     """
     if hasattr(text, '__html__'):
         return text.__html__()
@@ -90,7 +96,7 @@ def format_html(format_string, *args, **kwargs):
     of str.format or % interpolation to build up small HTML fragments.
     """
     args_safe = map(conditional_escape, args)
-    kwargs_safe = dict((k, conditional_escape(v)) for (k, v) in six.iteritems(kwargs))
+    kwargs_safe = {k: conditional_escape(v) for (k, v) in six.iteritems(kwargs)}
     return mark_safe(format_string.format(*args_safe, **kwargs_safe))
 
 
@@ -105,7 +111,7 @@ def format_html_join(sep, format_string, args_generator):
 
     Example:
 
-      format_html_join('\n', "<li>{0} {1}</li>", ((u.first_name, u.last_name)
+      format_html_join('\n', "<li>{} {}</li>", ((u.first_name, u.last_name)
                                                   for u in users))
 
     """
@@ -128,12 +134,7 @@ linebreaks = allow_lazy(linebreaks, six.text_type)
 
 class MLStripper(HTMLParser):
     def __init__(self):
-        # The strict parameter was added in Python 3.2 with a default of True.
-        # The default changed to False in Python 3.3 and was deprecated.
-        if sys.version_info[:2] == (3, 2):
-            HTMLParser.__init__(self, strict=False)
-        else:
-            HTMLParser.__init__(self)
+        HTMLParser.__init__(self)
         self.reset()
         self.fed = []
 
@@ -161,9 +162,7 @@ def _strip_once(value):
         return value
     try:
         s.close()
-    except (HTMLParseError, UnboundLocalError):
-        # UnboundLocalError because of http://bugs.python.org/issue17802
-        # on Python 3.2, triggered by strict=False mode of HTMLParser
+    except HTMLParseError:
         return s.get_data() + s.rawdata
     else:
         return s.get_data()

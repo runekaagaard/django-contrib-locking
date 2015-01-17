@@ -25,10 +25,10 @@ warnings.simplefilter("error", RemovedInDjango20Warning)
 
 CONTRIB_MODULE_PATH = 'django.contrib'
 
-TEST_TEMPLATE_DIR = 'templates'
-
 CONTRIB_DIR = os.path.dirname(upath(contrib.__file__))
 RUNTESTS_DIR = os.path.abspath(os.path.dirname(upath(__file__)))
+
+TEMPLATE_DIR = os.path.join(RUNTESTS_DIR, 'templates')
 
 TEMP_DIR = tempfile.mkdtemp(prefix='django_')
 os.environ['DJANGO_TEST_TEMP_DIR'] = TEMP_DIR
@@ -101,7 +101,9 @@ def setup(verbosity, test_labels):
     state = {
         'INSTALLED_APPS': settings.INSTALLED_APPS,
         'ROOT_URLCONF': getattr(settings, "ROOT_URLCONF", ""),
+        # Remove the following line in Django 2.0.
         'TEMPLATE_DIRS': settings.TEMPLATE_DIRS,
+        'TEMPLATES': settings.TEMPLATES,
         'LANGUAGE_CODE': settings.LANGUAGE_CODE,
         'STATIC_URL': settings.STATIC_URL,
         'STATIC_ROOT': settings.STATIC_ROOT,
@@ -113,7 +115,21 @@ def setup(verbosity, test_labels):
     settings.ROOT_URLCONF = 'urls'
     settings.STATIC_URL = '/static/'
     settings.STATIC_ROOT = os.path.join(TEMP_DIR, 'static')
-    settings.TEMPLATE_DIRS = (os.path.join(RUNTESTS_DIR, TEST_TEMPLATE_DIR),)
+    # Remove the following line in Django 2.0.
+    settings.TEMPLATE_DIRS = (TEMPLATE_DIR,)
+    settings.TEMPLATES = [{
+        'BACKEND': 'django.template.backends.django.DjangoTemplates',
+        'DIRS': [TEMPLATE_DIR],
+        'APP_DIRS': True,
+        'OPTIONS': {
+            'context_processors': [
+                'django.template.context_processors.debug',
+                'django.template.context_processors.request',
+                'django.contrib.auth.context_processors.auth',
+                'django.contrib.messages.context_processors.messages',
+            ],
+        },
+    }]
     settings.LANGUAGE_CODE = 'en'
     settings.SITE_ID = 1
     settings.MIDDLEWARE_CLASSES = ALWAYS_MIDDLEWARE_CLASSES
@@ -198,7 +214,7 @@ def teardown(state):
         setattr(settings, key, value)
 
 
-def django_tests(verbosity, interactive, failfast, keepdb, reverse, test_labels):
+def django_tests(verbosity, interactive, failfast, keepdb, reverse, test_labels, debug_sql):
     state = setup(verbosity, test_labels)
     extra_tests = []
 
@@ -213,6 +229,7 @@ def django_tests(verbosity, interactive, failfast, keepdb, reverse, test_labels)
         failfast=failfast,
         keepdb=keepdb,
         reverse=reverse,
+        debug_sql=debug_sql,
     )
     # Catch warnings thrown in test DB setup -- remove in Django 1.9
     with warnings.catch_warnings():
@@ -225,11 +242,6 @@ def django_tests(verbosity, interactive, failfast, keepdb, reverse, test_labels)
         warnings.filterwarnings(
             'ignore',
             'initial_data fixtures are deprecated. Use data migrations instead.',
-            RemovedInDjango19Warning
-        )
-        warnings.filterwarnings(
-            'ignore',
-            'IPAddressField has been deprecated. Use GenericIPAddressField instead.',
             RemovedInDjango19Warning
         )
         failures = test_runner.run_tests(
@@ -372,6 +384,9 @@ if __name__ == "__main__":
     parser.add_argument(
         '--selenium', action='store_true', dest='selenium', default=False,
         help='Run the Selenium tests as well (if Selenium is installed)')
+    parser.add_argument(
+        '--debug-sql', action='store_true', dest='debug_sql', default=False,
+        help='Turn on the SQL query logger within tests')
     options = parser.parse_args()
 
     # mock is a required dependency
@@ -407,6 +422,7 @@ if __name__ == "__main__":
     else:
         failures = django_tests(options.verbosity, options.interactive,
                                 options.failfast, options.keepdb,
-                                options.reverse, options.modules)
+                                options.reverse, options.modules,
+                                options.debug_sql)
         if failures:
             sys.exit(bool(failures))

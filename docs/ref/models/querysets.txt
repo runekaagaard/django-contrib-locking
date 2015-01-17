@@ -180,6 +180,9 @@ The lookup parameters (``**kwargs``) should be in the format described in
 `Field lookups`_ below. Multiple parameters are joined via ``AND`` in the
 underlying SQL statement.
 
+If you need to execute more complex queries (for example, queries with ``OR`` statements),
+you can use :class:`Q objects <django.db.models.Q>`.
+
 exclude
 ~~~~~~~
 
@@ -214,6 +217,9 @@ In SQL terms, that evaluates to::
     AND NOT headline = 'Hello'
 
 Note the second example is more restrictive.
+
+If you need to execute more complex queries (for example, queries with ``OR`` statements),
+you can use :class:`Q objects <django.db.models.Q>`.
 
 annotate
 ~~~~~~~~
@@ -316,17 +322,28 @@ identical to::
 
     Entry.objects.order_by('blog__name')
 
+It is also possible to order a queryset by a related field, without incurring
+the cost of a JOIN, by referring to the ``_id`` of the related field::
+
+    # No Join
+    Entry.objects.order_by('blog_id')
+
+    # Join
+    Entry.objects.order_by('blog__id')
+
 .. versionadded:: 1.7
 
-    Note that it is also possible to order a queryset by a related field,
-    without incurring the cost of a JOIN, by referring to the ``_id`` of the
-    related field::
+    The ability to order a queryset by a related field, without incurring
+    the cost of a JOIN was added.
 
-        # No Join
-        Entry.objects.order_by('blog_id')
+You can also order by :doc:`query expressions </ref/models/expressions>` by
+calling ``asc()`` or ``desc()`` on the expression::
 
-        # Join
-        Entry.objects.order_by('blog__id')
+    Entry.objects.order_by(Coalesce('summary', 'headline').desc())
+
+.. versionadded:: 1.8
+
+    Ordering by query expressions was added.
 
 Be cautious when ordering by fields in related models if you are also using
 :meth:`distinct()`. See the note in :meth:`distinct` for an explanation of how
@@ -360,6 +377,16 @@ related model ordering can change the expected results.
 There's no way to specify whether ordering should be case sensitive. With
 respect to case-sensitivity, Django will order results however your database
 backend normally orders them.
+
+You can order by a field converted to lowercase with
+:class:`~django.db.models.functions.Lower` which will achieve case-consistent
+ordering::
+
+    Entry.objects.order_by(Lower('headline').desc())
+
+.. versionadded:: 1.8
+
+    The ability to order by expressions like ``Lower`` was added.
 
 If you don't want any ordering to be applied to a query, not even the default
 ordering, call :meth:`order_by()` with no parameters.
@@ -882,8 +909,8 @@ For example, suppose you have these models::
         toppings = models.ManyToManyField(Topping)
 
         def __str__(self):              # __unicode__ on Python 2
-            return "%s (%s)" % (self.name, ", ".join([topping.name
-                                                      for topping in self.toppings.all()]))
+            return "%s (%s)" % (self.name, ", ".join(topping.name
+                                                     for topping in self.toppings.all()))
 
 and run::
 
@@ -1600,7 +1627,7 @@ found, ``get_or_create()`` will instantiate and save a new object, returning a
 tuple of the new object and ``True``. The new object will be created roughly
 according to this algorithm::
 
-    params = dict([(k, v) for k, v in kwargs.items() if '__' not in k])
+    params = {k: v for k, v in kwargs.items() if '__' not in k}
     params.update(defaults)
     obj = self.model(**params)
     obj.save()
@@ -2843,3 +2870,52 @@ Variance
         extension.
 
 .. _SQLite documentation: http://www.sqlite.org/contrib
+
+Query-related classes
+=====================
+
+This section provides reference material for query-related tools not documented
+elsewhere.
+
+``Q()`` objects
+---------------
+
+.. class:: Q
+
+A ``Q()`` object, like an :class:`~django.db.models.F` object, encapsulates a
+SQL expression in a Python object that can be used in database-related
+operations.
+
+In general, ``Q() objects`` make it possible to define and reuse conditions.
+This permits the :ref:`construction of complex database queries
+<complex-lookups-with-q>` using ``|`` (``OR``) and ``&`` (``AND``) operators;
+in particular, it is not otherwise possible to use ``OR`` in ``QuerySets``.
+
+``Prefetch()`` objects
+----------------------
+
+.. versionadded:: 1.7
+
+.. class:: Prefetch(lookup, queryset=None, to_attr=None)
+
+The ``Prefetch()`` object can be used to control the operation of
+:meth:`~django.db.models.query.QuerySet.prefetch_related()`.
+
+The ``lookup`` argument describes the relations to follow and works the same
+as the string based lookups passed to
+:meth:`~django.db.models.query.QuerySet.prefetch_related()`.
+
+The ``queryset`` argument supplies a base ``QuerySet`` for the given lookup.
+This is useful to further filter down the prefetch operation, or to call
+:meth:`~django.db.models.query.QuerySet.select_related()` from the prefetched
+relation, hence reducing the number of queries even further.
+
+The ``to_attr`` argument sets the result of the prefetch operation to a custom
+attribute.
+
+.. note::
+
+    When using ``to_attr`` the prefetched result is stored in a list. This can
+    provide a significant speed improvement over traditional
+    ``prefetch_related`` calls which store the cached result within a
+    ``QuerySet`` instance.

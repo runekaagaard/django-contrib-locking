@@ -1,6 +1,6 @@
 from django.apps import apps
 from django.db import DEFAULT_DB_ALIAS, router
-from django.utils.encoding import smart_text
+from django.db.migrations.loader import is_latest_migration_applied
 from django.utils import six
 from django.utils.six.moves import input
 
@@ -10,6 +10,10 @@ def update_contenttypes(app_config, verbosity=2, interactive=True, using=DEFAULT
     Creates content types for models in the given app, removing any model
     entries that no longer have a matching model class.
     """
+    # TODO: Remove when migration plan / state is passed (#24100).
+    if not is_latest_migration_applied('contenttypes'):
+        return
+
     if not app_config.models_module:
         return
 
@@ -25,18 +29,18 @@ def update_contenttypes(app_config, verbosity=2, interactive=True, using=DEFAULT
 
     app_label = app_config.label
 
-    app_models = dict(
-        (model._meta.model_name, model)
-        for model in app_config.get_models())
+    app_models = {
+        model._meta.model_name: model
+        for model in app_config.get_models()}
 
     if not app_models:
         return
 
     # Get all the content types
-    content_types = dict(
-        (ct.model, ct)
+    content_types = {
+        ct.model: ct
         for ct in ContentType.objects.using(using).filter(app_label=app_label)
-    )
+    }
     to_remove = [
         ct
         for (model_name, ct) in six.iteritems(content_types)
@@ -45,7 +49,6 @@ def update_contenttypes(app_config, verbosity=2, interactive=True, using=DEFAULT
 
     cts = [
         ContentType(
-            name=smart_text(model._meta.verbose_name_raw),
             app_label=app_label,
             model=model_name,
         )
@@ -84,12 +87,3 @@ If you're unsure, answer 'no'.
         else:
             if verbosity >= 2:
                 print("Stale content types remain.")
-
-
-def update_all_contenttypes(**kwargs):
-    for app_config in apps.get_app_configs():
-        update_contenttypes(app_config, **kwargs)
-
-
-if __name__ == "__main__":
-    update_all_contenttypes()

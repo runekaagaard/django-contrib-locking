@@ -2,7 +2,6 @@ from collections import defaultdict
 
 from django.template.base import TemplateSyntaxError, Library, Node, TextNode,\
     token_kwargs, Variable
-from django.template.loader import get_template
 from django.utils.safestring import mark_safe
 from django.utils import six
 
@@ -86,7 +85,7 @@ class ExtendsNode(Node):
         self.nodelist = nodelist
         self.parent_name = parent_name
         self.template_dirs = template_dirs
-        self.blocks = dict((n.name, n) for n in nodelist.get_nodes_by_type(BlockNode))
+        self.blocks = {n.name: n for n in nodelist.get_nodes_by_type(BlockNode)}
 
     def __repr__(self):
         return '<ExtendsNode: extends %s>' % self.parent_name.token
@@ -102,7 +101,7 @@ class ExtendsNode(Node):
             raise TemplateSyntaxError(error_msg)
         if hasattr(parent, 'render'):
             return parent  # parent is a Template object
-        return get_template(parent)
+        return context.engine.get_template(parent)
 
     def render(self, context):
         compiled_parent = self.get_parent(context)
@@ -120,8 +119,8 @@ class ExtendsNode(Node):
             # The ExtendsNode has to be the first non-text node.
             if not isinstance(node, TextNode):
                 if not isinstance(node, ExtendsNode):
-                    blocks = dict((n.name, n) for n in
-                                  compiled_parent.nodelist.get_nodes_by_type(BlockNode))
+                    blocks = {n.name: n for n in
+                              compiled_parent.nodelist.get_nodes_by_type(BlockNode)}
                     block_context.add_blocks(blocks)
                 break
 
@@ -143,7 +142,7 @@ class IncludeNode(Node):
             # Does this quack like a Template?
             if not callable(getattr(template, 'render', None)):
                 # If not, we'll try get_template
-                template = get_template(template)
+                template = context.engine.get_template(template)
             values = {
                 name: var.resolve(context)
                 for name, var in six.iteritems(self.extra_context)

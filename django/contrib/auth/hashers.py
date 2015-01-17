@@ -8,7 +8,7 @@ import importlib
 
 from django.dispatch import receiver
 from django.conf import settings
-from django.test.signals import setting_changed
+from django.core.signals import setting_changed
 from django.utils.encoding import force_bytes, force_str, force_text
 from django.core.exceptions import ImproperlyConfigured
 from django.utils.crypto import (
@@ -226,7 +226,7 @@ class PBKDF2PasswordHasher(BasePasswordHasher):
     safely but you must rename the algorithm if you change SHA256.
     """
     algorithm = "pbkdf2_sha256"
-    iterations = 20000
+    iterations = 24000
     digest = hashlib.sha256
 
     def encode(self, password, salt, iterations=None):

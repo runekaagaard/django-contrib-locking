@@ -18,7 +18,7 @@ from django.template import Template
 from django.template.loaders import locmem
 from django.test.signals import template_rendered, setting_changed
 from django.utils import six
-from django.utils.deprecation import RemovedInDjango19Warning, RemovedInDjango20Warning
+from django.utils.deprecation import RemovedInDjango19Warning
 from django.utils.encoding import force_str
 from django.utils.translation import deactivate
 
@@ -231,7 +231,7 @@ class modify_settings(override_settings):
     """
     def __init__(self, *args, **kwargs):
         if args:
-            # Hack used when instantiating from SimpleTestCase._pre_setup.
+            # Hack used when instantiating from SimpleTestCase.setUpClass.
             assert not kwargs
             self.operations = args[0]
         else:
@@ -250,7 +250,7 @@ class modify_settings(override_settings):
         self.options = {}
         for name, operations in self.operations:
             try:
-                # When called from SimpleTestCase._pre_setup, values may be
+                # When called from SimpleTestCase.setUpClass, values may be
                 # overridden several times; cumulate changes.
                 value = self.options[name]
             except KeyError:
@@ -309,8 +309,8 @@ def compare_xml(want, got):
         return _norm_whitespace_re.sub(' ', v)
 
     def child_text(element):
-        return ''.join([c.data for c in element.childNodes
-                        if c.nodeType == Node.TEXT_NODE])
+        return ''.join(c.data for c in element.childNodes
+                       if c.nodeType == Node.TEXT_NODE)
 
     def children(element):
         return [c for c in element.childNodes
@@ -432,27 +432,40 @@ class CaptureQueriesContext(object):
         self.final_queries = len(self.connection.queries_log)
 
 
-class IgnoreDeprecationWarningsMixin(object):
-    warning_classes = [RemovedInDjango19Warning]
+class ignore_warnings(object):
+    def __init__(self, **kwargs):
+        self.ignore_kwargs = kwargs
+        if 'message' in self.ignore_kwargs or 'module' in self.ignore_kwargs:
+            self.filter_func = warnings.filterwarnings
+        else:
+            self.filter_func = warnings.simplefilter
 
-    def setUp(self):
-        super(IgnoreDeprecationWarningsMixin, self).setUp()
-        self.catch_warnings = warnings.catch_warnings()
-        self.catch_warnings.__enter__()
-        for warning_class in self.warning_classes:
-            warnings.filterwarnings("ignore", category=warning_class)
+    def __call__(self, decorated):
+        if isinstance(decorated, type):
+            # A class is decorated
+            saved_setUp = decorated.setUp
+            saved_tearDown = decorated.tearDown
 
-    def tearDown(self):
-        self.catch_warnings.__exit__(*sys.exc_info())
-        super(IgnoreDeprecationWarningsMixin, self).tearDown()
+            def setUp(inner_self):
+                self.catch_warnings = warnings.catch_warnings()
+                self.catch_warnings.__enter__()
+                self.filter_func('ignore', **self.ignore_kwargs)
+                saved_setUp(inner_self)
 
+            def tearDown(inner_self):
+                saved_tearDown(inner_self)
+                self.catch_warnings.__exit__(*sys.exc_info())
 
-class IgnorePendingDeprecationWarningsMixin(IgnoreDeprecationWarningsMixin):
-        warning_classes = [RemovedInDjango20Warning]
-
-
-class IgnoreAllDeprecationWarningsMixin(IgnoreDeprecationWarningsMixin):
-        warning_classes = [RemovedInDjango20Warning, RemovedInDjango19Warning]
+            decorated.setUp = setUp
+            decorated.tearDown = tearDown
+            return decorated
+        else:
+            @wraps(decorated)
+            def inner(*args, **kwargs):
+                with warnings.catch_warnings():
+                    self.filter_func('ignore', **self.ignore_kwargs)
+                    return decorated(*args, **kwargs)
+            return inner
 
 
 @contextmanager
@@ -541,3 +554,34 @@ def captured_stdin():
        self.assertEqual(captured, "hello")
     """
     return captured_output("stdin")
+
+
+def reset_warning_registry():
+    """
+    Clear warning registry for all modules. This is required in some tests
+    because of a bug in Python that prevents warnings.simplefilter("always")
+    from always making warnings appear: http://bugs.python.org/issue4180
+
+    The bug was fixed in Python 3.4.2.
+    """
+    key = "__warningregistry__"
+    for mod in sys.modules.values():
+        if hasattr(mod, key):
+            getattr(mod, key).clear()
+
+
+@contextmanager
+def freeze_time(t):
+    """
+    Context manager to temporarily freeze time.time(). This temporarily
+    modifies the time function of the time module. Modules which import the
+    time function directly (e.g. `from time import time`) won't be affected
+    This isn't meant as a public API, but helps reduce some repetitive code in
+    Django's test suite.
+    """
+    _real_time = time.time
+    time.time = lambda: t
+    try:
+        yield
+    finally:
+        time.time = _real_time

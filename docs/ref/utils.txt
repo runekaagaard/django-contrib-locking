@@ -97,34 +97,6 @@ need to distinguish caches by the ``Accept-language`` header.
     cache, this just means that we have to build the response once to get at
     the Vary header and so at the list of headers to use for the cache key.
 
-``django.utils.datastructures``
-===============================
-
-.. module:: django.utils.datastructures
-   :synopsis: Data structures that aren't in Python's standard library.
-
-.. class:: SortedDict
-
-.. deprecated:: 1.7
-    ``SortedDict`` is deprecated and will be removed in Django 1.9. Use
-    :class:`collections.OrderedDict` instead.
-
-    The :class:`django.utils.datastructures.SortedDict` class is a dictionary
-    that keeps its keys in the order in which they're inserted.
-
-Creating a new SortedDict
--------------------------
-
-Creating a new ``SortedDict`` must be done in a way where ordering is
-guaranteed. For example::
-
-    SortedDict({'b': 1, 'a': 2, 'c': 3})
-
-will not work. Passing in a basic Python ``dict`` could produce unreliable
-results. Instead do::
-
-    SortedDict([('b', 1), ('a', 2), ('c', 3)])
-
 ``django.utils.dateparse``
 ==========================
 
@@ -157,6 +129,15 @@ The functions defined in this module share the following properties:
     UTC offsets are supported; if ``value`` describes one, the result's
     ``tzinfo`` attribute is a :class:`~django.utils.tzinfo.FixedOffset`
     instance.
+
+.. function:: parse_duration(value)
+
+    .. versionadded:: 1.8
+
+    Parses a string and returns a :class:`datetime.timedelta`.
+
+    Expects data in the format ``"DD HH:MM:SS.uuuuuu"`` or as specified by ISO
+    8601 (e.g. ``P4DT1H15M20S`` which is equivalent to ``4 1:15:20``).
 
 ``django.utils.decorators``
 ===========================
@@ -605,7 +586,7 @@ escaping HTML.
 
     You should instead use::
 
-        format_html("{0} <b>{1}</b> {2}",
+        format_html("{} <b>{}</b> {}",
                     mark_safe(some_html), some_text, some_other_text)
 
     This has the advantage that you don't need to apply :func:`escape` to each
@@ -627,7 +608,7 @@ escaping HTML.
     ``args_generator`` should be an iterator that returns the sequence of
     ``args`` that will be passed to :func:`format_html`. For example::
 
-        format_html_join('\n', "<li>{0} {1}</li>", ((u.first_name, u.last_name)
+        format_html_join('\n', "<li>{} {}</li>", ((u.first_name, u.last_name)
                                                     for u in users))
 
 .. function:: strip_tags(value)
@@ -677,7 +658,7 @@ escaping HTML.
     If ``value`` is ``"<B>Joel</B> <button>is</button> a <span>slug</span>"``
     the return value will be ``"<B>Joel</B> <button>is</button> a slug"``.
 
-.. _str.format: http://docs.python.org/library/stdtypes.html#str.format
+.. _str.format: https://docs.python.org/library/stdtypes.html#str.format
 .. _bleach: https://pypi.python.org/pypi/bleach
 
 ``django.utils.http``
@@ -739,7 +720,7 @@ escaping HTML.
     Converts a positive integer to a base 36 string. On Python 2 ``i`` must be
     smaller than `sys.maxint`_.
 
-    .. _sys.maxint: http://docs.python.org/2/library/sys.html#sys.maxint
+    .. _sys.maxint: https://docs.python.org/2/library/sys.html#sys.maxint
 
 .. function:: urlsafe_base64_encode(s)
 
@@ -821,6 +802,9 @@ appropriate entities.
     object can be used everywhere a string or unicode object is appropriate.
 
     Can be called multiple times on a single string.
+
+    For building up fragments of HTML, you should normally be using
+    :func:`django.utils.html.format_html` instead.
 
     String marked safe will become unsafe again if modified. For example::
 
@@ -1089,7 +1073,14 @@ For a complete discussion on the usage of the following see the
 
 .. function:: get_language()
 
-    Returns the currently selected language code.
+    Returns the currently selected language code. Returns ``None`` if
+    translations are temporarily deactivated (by :func:`deactivate_all()` or
+    when ``None`` is passed to :func:`override()`).
+
+    .. versionchanged:: 1.8
+
+        Before Django 1.8, ``get_language()`` always returned
+        :setting:`LANGUAGE_CODE` when translations were deactivated.
 
 .. function:: get_language_bidi()
 

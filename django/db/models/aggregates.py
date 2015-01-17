@@ -14,8 +14,9 @@ class Aggregate(Func):
     contains_aggregate = True
     name = None
 
-    def resolve_expression(self, query=None, allow_joins=True, reuse=None, summarize=False):
+    def resolve_expression(self, query=None, allow_joins=True, reuse=None, summarize=False, for_save=False):
         assert len(self.source_expressions) == 1
+        # Aggregates are not allowed in UPDATE queries, so ignore for_save
         c = super(Aggregate, self).resolve_expression(query, allow_joins, reuse, summarize)
         if c.source_expressions[0].contains_aggregate and not summarize:
             name = self.source_expressions[0].name
@@ -87,7 +88,7 @@ class Avg(Aggregate):
     def __init__(self, expression, **extra):
         super(Avg, self).__init__(expression, output_field=FloatField(), **extra)
 
-    def convert_value(self, value, connection):
+    def convert_value(self, value, connection, context):
         if value is None:
             return value
         return float(value)
@@ -101,11 +102,10 @@ class Count(Aggregate):
     def __init__(self, expression, distinct=False, **extra):
         if expression == '*':
             expression = Value(expression)
-            expression._output_field = IntegerField()
         super(Count, self).__init__(
             expression, distinct='DISTINCT ' if distinct else '', output_field=IntegerField(), **extra)
 
-    def convert_value(self, value, connection):
+    def convert_value(self, value, connection, context):
         if value is None:
             return 0
         return int(value)
@@ -128,7 +128,7 @@ class StdDev(Aggregate):
         self.function = 'STDDEV_SAMP' if sample else 'STDDEV_POP'
         super(StdDev, self).__init__(expression, output_field=FloatField(), **extra)
 
-    def convert_value(self, value, connection):
+    def convert_value(self, value, connection, context):
         if value is None:
             return value
         return float(value)
@@ -146,7 +146,7 @@ class Variance(Aggregate):
         self.function = 'VAR_SAMP' if sample else 'VAR_POP'
         super(Variance, self).__init__(expression, output_field=FloatField(), **extra)
 
-    def convert_value(self, value, connection):
+    def convert_value(self, value, connection, context):
         if value is None:
             return value
         return float(value)

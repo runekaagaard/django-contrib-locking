@@ -1,10 +1,13 @@
 import codecs
 import copy
 from decimal import Decimal
-from django.utils import six
+
 from django.apps.registry import Apps
-from django.db.backends.schema import BaseDatabaseSchemaEditor
+from django.db.backends.base.schema import BaseDatabaseSchemaEditor
 from django.db.models.fields.related import ManyToManyField
+from django.utils import six
+
+import _sqlite3
 
 
 class DatabaseSchemaEditor(BaseDatabaseSchemaEditor):
@@ -13,8 +16,6 @@ class DatabaseSchemaEditor(BaseDatabaseSchemaEditor):
     sql_create_inline_fk = "REFERENCES %(to_table)s (%(to_column)s)"
 
     def quote_value(self, value):
-        # Inner import to allow nice failure for backend if not present
-        import _sqlite3
         try:
             value = _sqlite3.adapt(value)
         except _sqlite3.ProgrammingError:
@@ -49,10 +50,10 @@ class DatabaseSchemaEditor(BaseDatabaseSchemaEditor):
         Shortcut to transform a model from old_model into new_model
         """
         # Work out the new fields dict / mapping
-        body = dict((f.name, f) for f in model._meta.local_fields)
+        body = {f.name: f for f in model._meta.local_fields}
         # Since mapping might mix column names and default values,
         # its values must be already quoted.
-        mapping = dict((f.column, self.quote_name(f.column)) for f in model._meta.local_fields)
+        mapping = {f.column: self.quote_name(f.column) for f in model._meta.local_fields}
         # This maps field names (not columns) for things like unique_together
         rename_mapping = {}
         # If any of the new or altered fields is introducing a new PK,
@@ -69,8 +70,8 @@ class DatabaseSchemaEditor(BaseDatabaseSchemaEditor):
         # Add in any created fields
         for field in create_fields:
             body[field.name] = field
-            # If there's a default, insert it into the copy map
-            if field.has_default():
+            # Choose a default and insert it into the copy map
+            if not isinstance(field, ManyToManyField):
                 mapping[field.column] = self.quote_value(
                     self.effective_default(field)
                 )
@@ -227,8 +228,8 @@ class DatabaseSchemaEditor(BaseDatabaseSchemaEditor):
                 alter_fields=[(
                     # We need the field that points to the target model, so we can tell alter_field to change it -
                     # this is m2m_reverse_field_name() (as opposed to m2m_field_name, which points to our model)
-                    old_field.rel.through._meta.get_field_by_name(old_field.m2m_reverse_field_name())[0],
-                    new_field.rel.through._meta.get_field_by_name(new_field.m2m_reverse_field_name())[0],
+                    old_field.rel.through._meta.get_field(old_field.m2m_reverse_field_name()),
+                    new_field.rel.through._meta.get_field(new_field.m2m_reverse_field_name()),
                 )],
                 override_uniques=(new_field.m2m_field_name(), new_field.m2m_reverse_field_name()),
             )

@@ -6,6 +6,7 @@ and database field objects.
 from __future__ import unicode_literals
 
 from collections import OrderedDict
+from itertools import chain
 import warnings
 
 from django.core.exceptions import (
@@ -27,7 +28,7 @@ __all__ = (
     'ModelForm', 'BaseModelForm', 'model_to_dict', 'fields_for_model',
     'save_instance', 'ModelChoiceField', 'ModelMultipleChoiceField',
     'ALL_FIELDS', 'BaseModelFormSet', 'modelformset_factory',
-    'BaseInlineFormSet', 'inlineformset_factory',
+    'BaseInlineFormSet', 'inlineformset_factory', 'modelform_factory',
 )
 
 ALL_FIELDS = '__all__'
@@ -89,7 +90,7 @@ def save_instance(form, instance, fields=None, fail_message='saved',
         # Note that for historical reasons we want to include also
         # virtual_fields here. (GenericRelation was previously a fake
         # m2m field).
-        for f in opts.many_to_many + opts.virtual_fields:
+        for f in chain(opts.many_to_many, opts.virtual_fields):
             if not hasattr(f, 'save_form_data'):
                 continue
             if fields and f.name not in fields:
@@ -127,7 +128,7 @@ def model_to_dict(instance, fields=None, exclude=None):
     from django.db.models.fields.related import ManyToManyField
     opts = instance._meta
     data = {}
-    for f in opts.concrete_fields + opts.virtual_fields + opts.many_to_many:
+    for f in chain(opts.concrete_fields, opts.virtual_fields, opts.many_to_many):
         if not getattr(f, 'editable', False):
             continue
         if fields and f.name not in fields:
@@ -186,7 +187,7 @@ def fields_for_model(model, fields=None, exclude=None, widgets=None,
     from django.db.models.fields import Field as ModelField
     sortable_virtual_fields = [f for f in opts.virtual_fields
                                if isinstance(f, ModelField)]
-    for f in sorted(opts.concrete_fields + sortable_virtual_fields + opts.many_to_many):
+    for f in sorted(chain(opts.concrete_fields, sortable_virtual_fields, opts.many_to_many)):
         if not getattr(f, 'editable', False):
             continue
         if fields is not None and f.name not in fields:
@@ -567,7 +568,7 @@ class BaseModelFormSet(BaseFormSet):
 
     def _existing_object(self, pk):
         if not hasattr(self, '_object_dict'):
-            self._object_dict = dict((o.pk, o) for o in self.get_queryset())
+            self._object_dict = {o.pk: o for o in self.get_queryset()}
         return self._object_dict.get(pk)
 
     def _get_to_python(self, field):
@@ -883,8 +884,7 @@ class BaseInlineFormSet(BaseModelFormSet):
 
     @classmethod
     def get_default_prefix(cls):
-        from django.db.models.fields.related import RelatedObject
-        return RelatedObject(cls.fk.rel.to, cls.model, cls.fk).get_accessor_name().replace('+', '')
+        return cls.fk.rel.get_accessor_name(model=cls.model).replace('+', '')
 
     def save_new(self, form, commit=True):
         # Use commit=False so we can assign the parent key afterwards, then
@@ -1232,8 +1232,7 @@ class ModelMultipleChoiceField(ModelChoiceField):
     def to_python(self, value):
         if not value:
             return []
-        to_py = super(ModelMultipleChoiceField, self).to_python
-        return [to_py(val) for val in value]
+        return list(self._check_values(value))
 
     def clean(self, value):
         if self.required and not value:
@@ -1242,7 +1241,29 @@ class ModelMultipleChoiceField(ModelChoiceField):
             return self.queryset.none()
         if not isinstance(value, (list, tuple)):
             raise ValidationError(self.error_messages['list'], code='list')
+        qs = self._check_values(value)
+        # Since this overrides the inherited ModelChoiceField.clean
+        # we run custom validators here
+        self.run_validators(value)
+        return qs
+
+    def _check_values(self, value):
+        """
+        Given a list of possible PK values, returns a QuerySet of the
+        corresponding objects. Raises a ValidationError if a given value is
+        invalid (not a valid PK, not in the queryset, etc.)
+        """
         key = self.to_field_name or 'pk'
+        # deduplicate given values to avoid creating many querysets or
+        # requiring the database backend deduplicate efficiently.
+        try:
+            value = frozenset(value)
+        except TypeError:
+            # list of lists isn't hashable, for example
+            raise ValidationError(
+                self.error_messages['list'],
+                code='list',
+            )
         for pk in value:
             try:
                 self.queryset.filter(**{key: pk})
@@ -1261,9 +1282,6 @@ class ModelMultipleChoiceField(ModelChoiceField):
                     code='invalid_choice',
                     params={'value': val},
                 )
-        # Since this overrides the inherited ModelChoiceField.clean
-        # we run custom validators here
-        self.run_validators(value)
         return qs
 
     def prepare_value(self, value):
